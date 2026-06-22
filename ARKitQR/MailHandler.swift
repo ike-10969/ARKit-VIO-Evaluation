@@ -9,7 +9,7 @@ struct MailView: UIViewControllerRepresentable {
         let mailController = MFMailComposeViewController()
         mailController.mailComposeDelegate = context.coordinator
 
-        mailController.setToRecipients(["oneok.haruto@icloud.com"])
+        mailController.setToRecipients(["your_email"])
         mailController.setSubject("ARKit Data")
         mailController.setMessageBody("Here is the ARKit data.", isHTML: false)
 
