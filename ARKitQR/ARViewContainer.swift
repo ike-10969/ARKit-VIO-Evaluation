@@ -128,8 +128,6 @@ struct ARKitARViewContainer: UIViewRepresentable {
 
         private var frameIndex: Int = 0
 
-        // 画面に表示する特徴点の大きさを距離に応じて変えるための設定です。
-        // 近い特徴点ほど大きく，遠い特徴点ほど小さく表示します。
         private let minFeaturePointRadius: CGFloat = 3.0
         private let maxFeaturePointRadius: CGFloat = 12.0
         private let nearFeatureDistance: Float = 0.2
@@ -453,7 +451,6 @@ struct ARKitARViewContainer: UIViewRepresentable {
         }
 
         func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
-            // 記録処理は session(_:didUpdate:) で行う
         }
 
         func saveToCSV(
