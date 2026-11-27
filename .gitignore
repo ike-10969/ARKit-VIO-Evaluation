@@ -1,4 +1,13 @@
+# Xcode local state and build output
 .DS_Store
 DerivedData/
-*.xcuserstate
+build/
 xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+# Experiment recordings and local configuration
+*.csv
+*.zip
+.env
+.env.*
