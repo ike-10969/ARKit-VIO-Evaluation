@@ -24,20 +24,37 @@ ARKitによる開始位置からの変位・特徴点数と，CoreMotionによ�
 
 ## システム構成
 
+操作の入口である`ContentView`を上段に置き，計測・保存とメール画面の表示を分けて示します．実線は操作・制御，破線はデータの受け渡しを表します．
+
 ```mermaid
 flowchart TD
-    UI["ContentView / SwiftUI"] -->|開始・リセット| C["Coordinator / 計測制御"]
-    AR["ARKit / ARSession"] -->|位置・特徴点| C
-    CM["CoreMotion / motionQueue"] -->|加速度・角速度・姿勢| Q["imuWriteQueue / 直列書き込み"]
-    C -->|記録の開始・初期化・同期| Q
-    C --> A["ARKitData.csv"]
-    Q --> I["3種類のIMU CSV"]
-    A --> M["MailView / MessageUI"]
-    I --> M
-    C -->|特徴点描画・状態| UI
+    UI["ContentView / 操作・状態表示"]
+    C["Coordinator / 計測制御"]
+    AR["ARKit / ARSession"]
+    CM["CoreMotion / motionQueue"]
+    Q["imuWriteQueue / 直列書き込み"]
+    A["ARKitData.csv"]
+    I["3種類のIMU CSV"]
+    M["MailView / MessageUI"]
+
+    UI -->|Start・Reset・出力前の同期要求| C
+    UI -->|Send Emailで画面を表示| M
+    C -->|セッション管理| AR
+    AR -.->|推定位置・特徴点| C
+    C -->|センサ更新を開始| CM
+    CM -.->|加速度・角速度・姿勢| Q
+    C -->|記録開始・初期化・ファイル同期| Q
+    C -->|位置・特徴点数を保存| A
+    Q -->|IMUデータを保存| I
+    A -.->|CSVを読み込んで添付| M
+    I -.->|CSVを読み込んで添付| M
 ```
 
-`ContentView`が計測操作を受け付け，`ARKitARViewContainer.Coordinator`がARSessionのイベントと計測状態を管理します．CoreMotionのコールバックは専用のOperationQueueで受信します．IMUファイル操作は直列キューへ集約し，複数のセンサからの書き込みを順序付けています．メール作成前にはIMUファイルを同期してからCSVを読み込みます．
+`ContentView`がStart・Reset・Send Emailの操作を受け付けます．計測処理は`ARKitARViewContainer.Coordinator`へ渡し，Send EmailではIMUファイルの同期を要求した後，SwiftUIのsheetで`MailView`を表示します．メール画面はCSV保存後に自動表示される構成ではありません．
+
+`Coordinator`はARSessionのイベントと計測状態を管理し，ARKitData.csvへの記録と特徴点オーバーレイの描画を担当します．追跡状態や特徴点数はBinding・通知を通じて`ContentView`へ反映します．図では操作の入口を明確にするため，状態表示へのフィードバック矢印を省略しています．
+
+CoreMotionのコールバックは専用のOperationQueueで受信します．IMUファイル操作は直列キューへ集約し，複数のセンサからの書き込みを順序付けています．`MailView`は同期要求後の4種類のCSVを読み込んでメールへ添付し，利用者が宛先と送信を確定します．
 
 ## 使用技術・動作条件
 
