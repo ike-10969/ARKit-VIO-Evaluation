@@ -3,12 +3,16 @@ import ARKit
 import SceneKit
 import Foundation
 import CoreMotion
-import Kronos
 import UIKit
+
+// Implementation policy:
+// Do not use GPS, CoreLocation, location permissions, or geographic coordinates.
+// Track movement only in ARKit's local coordinate system relative to the start point.
 
 extension Notification.Name {
     static let arInitializationDidComplete = Notification.Name("arInitializationDidComplete")
     static let arStartRequested = Notification.Name("arStartRequested")
+    static let arDataExportRequested = Notification.Name("arDataExportRequested")
 }
 
 struct ARKitARViewContainer: UIViewRepresentable {
@@ -124,10 +128,28 @@ struct ARKitARViewContainer: UIViewRepresentable {
         let minimumFeatureCount: Int = 50
 
         let motionManager = CMMotionManager()
+        private let motionQueue: OperationQueue = {
+            let queue = OperationQueue()
+            queue.name = "ARKitQR.IMU.CallbackQueue"
+            queue.maxConcurrentOperationCount = 1
+            queue.qualityOfService = .userInitiated
+            return queue
+        }()
+        private let imuWriteQueue = DispatchQueue(label: "ARKitQR.IMU.WriteQueue")
+
         var latestAcceleration = CMAcceleration(x: 0, y: 0, z: 0)
+
+        private var isIMURecording = false
+        private var rawAccelerometerFileHandle: FileHandle?
+        private var rawGyroscopeFileHandle: FileHandle?
+        private var deviceMotionFileHandle: FileHandle?
+
+        private let standardGravity = 9.80665
 
         private var frameIndex: Int = 0
 
+        // 画面に表示する特徴点の大きさを距離に応じて変えるための設定です。
+        // 近い特徴点ほど大きく，遠い特徴点ほど小さく表示します。
         private let minFeaturePointRadius: CGFloat = 3.0
         private let maxFeaturePointRadius: CGFloat = 12.0
         private let nearFeatureDistance: Float = 0.2
@@ -137,7 +159,7 @@ struct ARKitARViewContainer: UIViewRepresentable {
             self.parent = parent
             super.init()
 
-            startAccelerometer()
+            startMotionUpdates()
 
             NotificationCenter.default.addObserver(
                 self,
@@ -145,22 +167,106 @@ struct ARKitARViewContainer: UIViewRepresentable {
                 name: .arStartRequested,
                 object: nil
             )
+
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(handleDataExportRequestedNotification),
+                name: .arDataExportRequested,
+                object: nil
+            )
         }
 
         deinit {
             NotificationCenter.default.removeObserver(self)
-            motionManager.stopDeviceMotionUpdates()
+            stopMotionUpdates()
+
+            imuWriteQueue.sync {
+                isIMURecording = false
+                closeIMUFiles()
+            }
         }
 
-        func startAccelerometer() {
+        func startMotionUpdates() {
+            let updateInterval = 1.0 / 100.0
+
+            motionManager.accelerometerUpdateInterval = updateInterval
+            motionManager.gyroUpdateInterval = updateInterval
+            motionManager.deviceMotionUpdateInterval = updateInterval
+
+            if motionManager.isAccelerometerAvailable {
+                motionManager.startAccelerometerUpdates(to: motionQueue) { [weak self] data, error in
+                    guard let self = self else { return }
+
+                    if let error = error {
+                        print("Raw accelerometer error: \(error)")
+                        return
+                    }
+
+                    guard let data = data else { return }
+
+                    let acceleration = data.acceleration
+                    let unixTimestamp = data.timestamp + self.timeOffset
+                    let line = String(
+                        format: "%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f\n",
+                        data.timestamp,
+                        unixTimestamp,
+                        acceleration.x,
+                        acceleration.y,
+                        acceleration.z,
+                        acceleration.x * self.standardGravity,
+                        acceleration.y * self.standardGravity,
+                        acceleration.z * self.standardGravity
+                    )
+
+                    self.imuWriteQueue.async { [weak self] in
+                        guard let self = self, self.isIMURecording else { return }
+                        self.appendIMULine(line, to: self.rawAccelerometerFileHandle)
+                    }
+                }
+            } else {
+                print("Raw accelerometer is not available")
+            }
+
+            if motionManager.isGyroAvailable {
+                motionManager.startGyroUpdates(to: motionQueue) { [weak self] data, error in
+                    guard let self = self else { return }
+
+                    if let error = error {
+                        print("Raw gyroscope error: \(error)")
+                        return
+                    }
+
+                    guard let data = data else { return }
+
+                    let rotationRate = data.rotationRate
+                    let unixTimestamp = data.timestamp + self.timeOffset
+                    let line = String(
+                        format: "%.9f,%.9f,%.9f,%.9f,%.9f\n",
+                        data.timestamp,
+                        unixTimestamp,
+                        rotationRate.x,
+                        rotationRate.y,
+                        rotationRate.z
+                    )
+
+                    self.imuWriteQueue.async { [weak self] in
+                        guard let self = self, self.isIMURecording else { return }
+                        self.appendIMULine(line, to: self.rawGyroscopeFileHandle)
+                    }
+                }
+            } else {
+                print("Raw gyroscope is not available")
+            }
+
             guard motionManager.isDeviceMotionAvailable else {
                 print("DeviceMotion is not available")
                 return
             }
 
-            motionManager.deviceMotionUpdateInterval = 1.0 / 60.0
-
-            motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, error in
+            motionManager.startDeviceMotionUpdates(
+                using: .xArbitraryZVertical,
+                to: motionQueue
+            ) { [weak self] motion, error in
                 guard let self = self else { return }
 
                 if let error = error {
@@ -170,8 +276,52 @@ struct ARKitARViewContainer: UIViewRepresentable {
 
                 guard let motion = motion else { return }
 
-                self.latestAcceleration = motion.userAcceleration
+                let gravity = motion.gravity
+                let userAcceleration = motion.userAcceleration
+                let rotationRate = motion.rotationRate
+                let quaternion = motion.attitude.quaternion
+                let unixTimestamp = motion.timestamp + self.timeOffset
+
+                let line = String(
+                    format: "%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,%.9f,xArbitraryZVertical\n",
+                    motion.timestamp,
+                    unixTimestamp,
+                    gravity.x,
+                    gravity.y,
+                    gravity.z,
+                    userAcceleration.x,
+                    userAcceleration.y,
+                    userAcceleration.z,
+                    userAcceleration.x * self.standardGravity,
+                    userAcceleration.y * self.standardGravity,
+                    userAcceleration.z * self.standardGravity,
+                    rotationRate.x,
+                    rotationRate.y,
+                    rotationRate.z,
+                    quaternion.x,
+                    quaternion.y,
+                    quaternion.z,
+                    quaternion.w,
+                    motion.attitude.roll,
+                    motion.attitude.pitch,
+                    motion.attitude.yaw
+                )
+
+                DispatchQueue.main.async { [weak self] in
+                    self?.latestAcceleration = userAcceleration
+                }
+
+                self.imuWriteQueue.async { [weak self] in
+                    guard let self = self, self.isIMURecording else { return }
+                    self.appendIMULine(line, to: self.deviceMotionFileHandle)
+                }
             }
+        }
+
+        func stopMotionUpdates() {
+            motionManager.stopAccelerometerUpdates()
+            motionManager.stopGyroUpdates()
+            motionManager.stopDeviceMotionUpdates()
         }
 
         @objc func handleStartRequestedNotification() {
@@ -199,6 +349,8 @@ struct ARKitARViewContainer: UIViewRepresentable {
             hasCompletedInitialization = true
             isMeasuring = true
 
+            beginIMURecording()
+
             saveCurrentFrameToCSV(frame: currentFrame)
 
             DispatchQueue.main.async { [weak self] in
@@ -210,27 +362,21 @@ struct ARKitARViewContainer: UIViewRepresentable {
             }
         }
 
-        func initializeTimeSync() {
-            Clock.sync { [weak self] date, _ in
-                guard let self = self else { return }
-
-                let uptime = ProcessInfo.processInfo.systemUptime
-
-                if let date = date {
-                    let kronosTime = date.timeIntervalSince1970
-                    self.timeOffset = kronosTime - uptime
-                    print("Time source: Kronos")
-                    print("Kronos UNIXTIME: \(kronosTime)")
-                } else {
-                    let fallbackTimestamp = Date().timeIntervalSince1970
-                    self.timeOffset = fallbackTimestamp - uptime
-                    print("Time source: Local")
-                    print("Local UNIXTIME: \(fallbackTimestamp)")
-                }
-
-                print("Device Uptime: \(uptime)")
-                print("Calculated Offset: \(self.timeOffset)")
+        @objc func handleDataExportRequestedNotification() {
+            imuWriteQueue.sync {
+                synchronizeIMUFiles()
             }
+        }
+
+        func initializeTimeSync() {
+            let uptime = ProcessInfo.processInfo.systemUptime
+            let localTimestamp = Date().timeIntervalSince1970
+            timeOffset = localTimestamp - uptime
+
+            print("Time source: Local")
+            print("Local UNIXTIME: \(localTimestamp)")
+            print("Device Uptime: \(uptime)")
+            print("Calculated Offset: \(timeOffset)")
         }
 
         func getCurrentTimestamp(from frame: ARFrame) -> Double {
@@ -441,16 +587,11 @@ struct ARKitARViewContainer: UIViewRepresentable {
                 features: features
             )
 
-            saveFeaturePointsToCSV(
-                timestamp: timestamp,
-                frame: frame,
-                frameIndex: frameIndex
-            )
-
             frameIndex += 1
         }
 
         func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
+            // 記録処理は session(_:didUpdate:) で行う
         }
 
         func saveToCSV(
@@ -490,90 +631,15 @@ struct ARKitARViewContainer: UIViewRepresentable {
             append(csvText, to: path)
         }
 
-        func saveFeaturePointsToCSV(
-            timestamp: Double,
-            frame: ARFrame,
-            frameIndex: Int
-        ) {
-            let fileName = "ARKitFeaturePoints.csv"
-            let path = documentsDirectory().appendingPathComponent(fileName)
-
-            guard let pointCloud = frame.rawFeaturePoints else {
-                return
-            }
-
-            let points = pointCloud.points
-            let identifiers = pointCloud.identifiers
-            let featureCount = points.count
-
-            let viewportSize: CGSize
-
-            if let sceneView = sceneView,
-               sceneView.bounds.width > 0,
-               sceneView.bounds.height > 0 {
-                viewportSize = sceneView.bounds.size
-            } else {
-                viewportSize = CGSize(width: 0, height: 0)
-            }
-
-            var csvText = ""
-
-            if !FileManager.default.fileExists(atPath: path.path) {
-                csvText = "Timestamp,FrameIndex,FeatureIndex,FeatureID,X,Y,Z,ScreenX,ScreenY,FeatureCount\n"
-            }
-
-            csvText.reserveCapacity(max(featureCount, 1) * 120)
-
-            for i in 0..<featureCount {
-                let point = points[i]
-                let identifier = i < identifiers.count ? identifiers[i] : 0
-
-                let projectedPoint: CGPoint
-
-                if viewportSize.width > 0,
-                   viewportSize.height > 0 {
-                    projectedPoint = frame.camera.projectPoint(
-                        point,
-                        orientation: .portrait,
-                        viewportSize: viewportSize
-                    )
-                } else {
-                    projectedPoint = CGPoint(
-                        x: CGFloat.nan,
-                        y: CGFloat.nan
-                    )
-                }
-
-                let line = String(
-                    format: "%.6f,%d,%d,%llu,%.6f,%.6f,%.6f,%.6f,%.6f,%d\n",
-                    timestamp,
-                    frameIndex,
-                    i,
-                    identifier,
-                    Double(point.x),
-                    Double(point.y),
-                    Double(point.z),
-                    Double(projectedPoint.x),
-                    Double(projectedPoint.y),
-                    featureCount
-                )
-
-                csvText.append(line)
-            }
-
-            append(csvText, to: path)
-        }
-
         func resetCSVData() {
             let dataPath = documentsDirectory().appendingPathComponent("ARKitData.csv")
-            let featurePath = documentsDirectory().appendingPathComponent("ARKitFeaturePoints.csv")
-
             let dataHeader = "Timestamp,Distance,DirectionX,DirectionY,DirectionZ,AccelerationX,AccelerationY,AccelerationZ,Features\n"
-            let featureHeader = "Timestamp,FrameIndex,FeatureIndex,FeatureID,X,Y,Z,ScreenX,ScreenY,FeatureCount\n"
 
             measurementAnchor = nil
             isMeasuring = false
             frameIndex = 0
+
+            resetIMUCSVData()
 
             do {
                 try dataHeader.write(
@@ -581,16 +647,96 @@ struct ARKitARViewContainer: UIViewRepresentable {
                     atomically: true,
                     encoding: .utf8
                 )
-
-                try featureHeader.write(
-                    to: featurePath,
-                    atomically: true,
-                    encoding: .utf8
-                )
             } catch {
                 print("Failed to reset CSV file")
                 print("\(error)")
             }
+        }
+
+        private func beginIMURecording() {
+            imuWriteQueue.sync {
+                isIMURecording = true
+            }
+        }
+
+        private func resetIMUCSVData() {
+            imuWriteQueue.sync {
+                isIMURecording = false
+                closeIMUFiles()
+
+                rawAccelerometerFileHandle = createIMUFile(
+                    fileName: "RawAccelerometer.csv",
+                    header: "SensorTimestamp,Timestamp,RawAccelerationX_G,RawAccelerationY_G,RawAccelerationZ_G,RawAccelerationX_m_s2,RawAccelerationY_m_s2,RawAccelerationZ_m_s2\n"
+                )
+
+                rawGyroscopeFileHandle = createIMUFile(
+                    fileName: "RawGyroscope.csv",
+                    header: "SensorTimestamp,Timestamp,RawRotationRateX_rad_s,RawRotationRateY_rad_s,RawRotationRateZ_rad_s\n"
+                )
+
+                deviceMotionFileHandle = createIMUFile(
+                    fileName: "DeviceMotion.csv",
+                    header: "SensorTimestamp,Timestamp,GravityX_G,GravityY_G,GravityZ_G,UserAccelerationX_G,UserAccelerationY_G,UserAccelerationZ_G,UserAccelerationX_m_s2,UserAccelerationY_m_s2,UserAccelerationZ_m_s2,RotationRateX_rad_s,RotationRateY_rad_s,RotationRateZ_rad_s,QuaternionX,QuaternionY,QuaternionZ,QuaternionW,Roll_rad,Pitch_rad,Yaw_rad,AttitudeReferenceFrame\n"
+                )
+            }
+        }
+
+        private func createIMUFile(
+            fileName: String,
+            header: String
+        ) -> FileHandle? {
+            let path = documentsDirectory().appendingPathComponent(fileName)
+
+            do {
+                try header.write(
+                    to: path,
+                    atomically: true,
+                    encoding: .utf8
+                )
+
+                let fileHandle = try FileHandle(forWritingTo: path)
+                try fileHandle.seekToEnd()
+                return fileHandle
+            } catch {
+                print("Failed to create \(fileName)")
+                print("\(error)")
+                return nil
+            }
+        }
+
+        private func appendIMULine(
+            _ line: String,
+            to fileHandle: FileHandle?
+        ) {
+            guard let fileHandle = fileHandle,
+                  let data = line.data(using: .utf8) else {
+                return
+            }
+
+            do {
+                try fileHandle.write(contentsOf: data)
+            } catch {
+                print("Failed to append IMU data")
+                print("\(error)")
+            }
+        }
+
+        private func synchronizeIMUFiles() {
+            try? rawAccelerometerFileHandle?.synchronize()
+            try? rawGyroscopeFileHandle?.synchronize()
+            try? deviceMotionFileHandle?.synchronize()
+        }
+
+        private func closeIMUFiles() {
+            synchronizeIMUFiles()
+
+            try? rawAccelerometerFileHandle?.close()
+            try? rawGyroscopeFileHandle?.close()
+            try? deviceMotionFileHandle?.close()
+
+            rawAccelerometerFileHandle = nil
+            rawGyroscopeFileHandle = nil
+            deviceMotionFileHandle = nil
         }
 
         func resetAllState() {

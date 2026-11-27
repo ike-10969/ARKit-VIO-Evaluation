@@ -9,12 +9,18 @@ struct MailView: UIViewControllerRepresentable {
         let mailController = MFMailComposeViewController()
         mailController.mailComposeDelegate = context.coordinator
 
-        mailController.setToRecipients(["your_email"])
-        mailController.setSubject("ARKit Data")
-        mailController.setMessageBody("Here is the ARKit data.", isHTML: false)
+        mailController.setToRecipients([]) // Choose a recipient in the mail composer.
+        mailController.setSubject("ARKit and IMU Data")
+        mailController.setMessageBody("Here are the ARKit and IMU data files.", isHTML: false)
 
-        attachCSV(fileName: "ARKitData.csv", to: mailController)
-        attachCSV(fileName: "ARKitFeaturePoints.csv", to: mailController)
+        [
+            "ARKitData.csv",
+            "RawAccelerometer.csv",
+            "RawGyroscope.csv",
+            "DeviceMotion.csv"
+        ].forEach { fileName in
+            attachCSV(fileName: fileName, to: mailController)
+        }
 
         return mailController
     }

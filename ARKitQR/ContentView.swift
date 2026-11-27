@@ -10,8 +10,6 @@ struct ContentView: View {
     @State private var anchorPoint: SCNVector3?
     @State private var resetQRFlag = false
     @State private var shouldResetCSV = false
-    @State private var showMail = false
-    @State private var mailTimer: Timer? = nil
     @State private var isStartEnabled = false
     @State private var showFeaturePoints = false
     @State private var featureCount = 0
@@ -42,10 +40,6 @@ struct ContentView: View {
 
                     Button("Start") {
                         NotificationCenter.default.post(name: .arStartRequested, object: nil)
-                        mailTimer?.invalidate()
-                        mailTimer = Timer.scheduledTimer(withTimeInterval: 210, repeats: false) { _ in
-                            showMail = true
-                        }
                         isStartEnabled = false
                     }
                     .font(.caption)
@@ -60,6 +54,7 @@ struct ContentView: View {
                 HStack(spacing: 8) {
                     Text(distance)
                         .lineLimit(1)
+
                     Text(direction)
                         .lineLimit(1)
                 }
@@ -78,7 +73,11 @@ struct ContentView: View {
                     Spacer()
 
                     Button("Send Email") {
-                        self.isShowingMailView.toggle()
+                        NotificationCenter.default.post(
+                            name: .arDataExportRequested,
+                            object: nil
+                        )
+                        isShowingMailView.toggle()
                     }
                     .font(.caption)
                     .disabled(!MFMailComposeViewController.canSendMail())
@@ -91,17 +90,10 @@ struct ContentView: View {
             .padding(.bottom, 24)
         }
         .sheet(isPresented: $isShowingMailView) {
-            MailView(isShowing: self.$isShowingMailView, result: self.$mailResult)
-        }
-        .sheet(isPresented: $showMail) {
-            MailView(isShowing: $showMail, result: $mailResult)
+            MailView(isShowing: $isShowingMailView, result: $mailResult)
         }
         .onReceive(NotificationCenter.default.publisher(for: .arInitializationDidComplete)) { _ in
             isStartEnabled = true
-        }
-        .onDisappear {
-            mailTimer?.invalidate()
-            mailTimer = nil
         }
     }
 }

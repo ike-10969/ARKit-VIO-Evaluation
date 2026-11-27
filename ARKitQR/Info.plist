@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict/>
+<dict>
+	<key>NSMotionUsageDescription</key>
+	<string>車両走行中の端末の加速度、角速度、重力、姿勢を研究目的で記録します。</string>
+</dict>
 </plist>
