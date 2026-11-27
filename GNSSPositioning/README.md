@@ -94,7 +94,8 @@ xcodebuild -project GNSSPositioning.xcodeproj -scheme GNSSPositioning \
   -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
-Xcode 26.3で署名なしのgeneric iOS向けビルドに成功しました（2026年11月27日）. 公開版では個人の開発者Team設定を解除しています. 実機へのインストール時は自分のTeamを指定してください. ビルド生成物, 個人設定, 実際の移動履歴は含めていません. 屋外での測位品質や端末間の時刻比較は実機で評価する必要があります.
+実機へのインストール時は自分のTeamを指定してください. ビルド生成物, 個人設定, 実際の移動履歴は含めていません. 
+屋外での測位品質や端末間の時刻比較は実機で評価する必要があります.
 
 ## English overview
 
