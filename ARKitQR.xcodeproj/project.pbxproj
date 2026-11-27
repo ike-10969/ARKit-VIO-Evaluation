@@ -13,7 +13,6 @@
 		D57F78882C3293C900D94617 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D57F78872C3293C900D94617 /* Preview Assets.xcassets */; };
 		D57F788F2C32944600D94617 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57F788E2C32944600D94617 /* AppDelegate.swift */; };
 		D57F78912C3294AC00D94617 /* MailHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57F78902C3294AC00D94617 /* MailHandler.swift */; };
-		D57F78942C32956E00D94617 /* Kronos in Frameworks */ = {isa = PBXBuildFile; productRef = D57F78932C32956E00D94617 /* Kronos */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,7 +31,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				D57F78942C32956E00D94617 /* Kronos in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -94,7 +92,6 @@
 			);
 			name = ARKitQR;
 			packageProductDependencies = (
-				D57F78932C32956E00D94617 /* Kronos */,
 			);
 			productName = ARKitQR;
 			productReference = D57F787D2C3293C700D94617 /* ARKitQR.app */;
@@ -125,7 +122,6 @@
 			);
 			mainGroup = D57F78742C3293C600D94617;
 			packageReferences = (
-				D57F78922C32956E00D94617 /* XCRemoteSwiftPackageReference "Kronos" */,
 			);
 			productRefGroup = D57F787E2C3293C700D94617 /* Products */;
 			projectDirPath = "";
@@ -290,7 +286,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"ARKitQR/Preview Content\"";
-				DEVELOPMENT_TEAM = 8879A37V38;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ARKitQR/Info.plist;
@@ -322,7 +318,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"ARKitQR/Preview Content\"";
-				DEVELOPMENT_TEAM = 8879A37V38;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ARKitQR/Info.plist;
@@ -369,24 +365,7 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		D57F78922C32956E00D94617 /* XCRemoteSwiftPackageReference "Kronos" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/MobileNativeFOundation/Kronos.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 4.3.1;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
 
-/* Begin XCSwiftPackageProductDependency section */
-		D57F78932C32956E00D94617 /* Kronos */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D57F78922C32956E00D94617 /* XCRemoteSwiftPackageReference "Kronos" */;
-			productName = Kronos;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = D57F78752C3293C600D94617 /* Project object */;
 }
